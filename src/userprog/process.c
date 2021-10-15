@@ -53,30 +53,59 @@ start_process (void *file_name_)
   char *file_name = file_name_;
   struct intr_frame if_;
   bool success;
+  int i, n, argc;
+  void * esp_old;
+  char *token, *save_ptr;
+  int len;
+  uint32_t addr;
+  int argc_copy;
+
+  len = strlen(file_name);
 
   printf("[TEST FILENAME] %s \n",file_name);
-
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
 
+  token = strtok_r (file_name, " ", &save_ptr);
+  success = load (token, &if_.eip, &if_.esp);
+
+  printf("**%d**\n", success);
 
   /* parsing */
-  void * esp_old = if_.esp;
+  esp_old = if_.esp;
   /* push argument contents */
   strrev(file_name);
-  int argc = push_esp(file_name, &if_.esp);
+  argc = push_string(file_name, &if_.esp, len);
 
   /* word aligned */
-  if_.esp -= (uint32_t) if_.esp % 4;
+  push_null_ntimes((uint32_t) if_.esp % 4, &if_.esp);
 
-  //if_.esp % 4
-
-
+  /* argv[] pushing */
+  push_null_ntimes(4, &if_.esp); // for excessive argv[argc]
+  argc_copy = argc;
+  for(addr = PHYS_BASE-2; argc_copy != 0 ; addr--)
+  {
+    if(*((char*)addr) == '\0')
+    {
+      // addr+1 이 주소값을 esp에 저장해야된다.
+      push_null_ntimes(4, &if_.esp);
+      *((uint32_t*)if_.esp) = addr+1;
+      argc_copy--;
+    }
+  }
+  /* argv pushing */
+  addr = if_.esp;
+  push_null_ntimes(4, &if_.esp);
+  *((uint32_t*)if_.esp) = addr;
+  /* argc pushing */
+  push_null_ntimes(4, &if_.esp);
+  *((int*)if_.esp) = argc;
+  /* return address pushing */
+  push_null_ntimes(4, &if_.esp);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -241,10 +270,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL)
-    {
-      printf ("load: %s: open failed\n", file_name);
-      goto done;
-    }
+  {
+    printf ("load: %s: open failed\n", file_name);
+    goto done;
+  }
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -485,27 +514,23 @@ install_page (void *upage, void *kpage, bool writable)
 /*Own functions For project 2*/
 
 /* input is file name and return value is argc. */
-int push_esp(char * s , void ** esp)
+int push_string(char * s , void ** esp, int len)
 {
    char* ptr = NULL;
    int isSpaceEntered = 0;
    int count = 0;
+   int i;
 
-   for (ptr = s; *ptr != '\0'; ptr++)
+   for (i = 0, ptr = s; i < len; ptr++, i++)
    {
-       if (*ptr != ' ')
+       if (*ptr != ' ' && *ptr != '\0')
        {
            if (isSpaceEntered == 1)
            {
-              *esp = (uint32_t)(*esp) - 1;
-              *((char*)(*esp)) = '\0';
-
-               //*(char*)(--((int32_t)(*esp))) = '\0';
-               isSpaceEntered = 0;
+              push_char(esp, '\0');
+              isSpaceEntered = 0;
            }
-           *esp = (uint32_t)(*esp) - 1;
-           *((char*)(*esp)) = *ptr;
-           //*(char*)(--((int32_t)(*esp))) = *ptr;
+           push_char(esp, *ptr);
        }
        else
        {
@@ -516,6 +541,12 @@ int push_esp(char * s , void ** esp)
    return count;
 }
 
+void push_char(char c, void** esp)
+{
+  *esp = (uint32_t)(*esp) - 1;
+  *((char*)(*esp)) = c;
+  return;
+}
 
 char * strrev (char * c) {
   char temp;
@@ -530,4 +561,14 @@ char * strrev (char * c) {
 
 
   return c;
+}
+
+void push_null_ntimes(int n, void** esp)
+{
+  int i;
+  for(i = 0 ; i < n ; i++)
+  {
+    push_char('\0', esp);
+  }
+  return;
 }
