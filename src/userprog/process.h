@@ -8,4 +8,9 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
+/* Own functions for project2 */
+int push_esp(char * s , void ** esp);
+char * strrev (char * c) ;
+
+
 #endif /* userprog/process.h */
